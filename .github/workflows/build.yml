@@ -31,7 +31,7 @@ jobs:
         run: |
           sudo apt update && sudo apt install -y git build-essential bc bison flex \
             libssl-dev libelf-dev cpio lz4 zstd ccache gcc-aarch64-linux-gnu \
-            clang llvm lld zip python3 patch curl gzip
+            clang llvm lld zip python3 patch curl gzip dwarves pahole
 
       - name: 📥 TẢI SOURCE KERNEL
         run: |
@@ -82,26 +82,19 @@ jobs:
             echo "⚠️ Không tải được SuSFS — tiếp tục build chỉ KSU"
           fi
 
-      - name: 🩹 FIX TOÀN BỘ LỖI CERT — TẠO FILE GIẢ + GHI ĐÈ
+      - name: 🩹 FIX TOÀN BỘ LỖI CERT — TẠO FILE GIẢ
         run: |
           cd kernel
-          # === 1. Tạo file cert rỗng — qua bước assembly ===
           touch certs/signing_key.x509
           touch certs/x509_certificate_list
-          echo "✅ Tạo file cert rỗng"
-          
-          # === 2. Ghi đè extract-cert.c — bỏ lỗi key_pass ===
           cat > certs/extract-cert.c << 'EOF'
           // Workaround: bỏ qua bước trích xuất cert
           #include <stdio.h>
           int main(void) { return 0; }
           EOF
-          echo "✅ Ghi đè extract-cert.c"
-          
-          # === 3. Kiểm tra file ===
-          ls -lh certs/signing_key.x509 certs/x509_certificate_list certs/extract-cert.c
+          echo "✅ Đã fix certs — tạo file rỗng + ghi đè extract-cert.c"
 
-      - name: ⚙️ Cấu hình Kernel — TẮT HOÀN TOÀN CERT
+      - name: ⚙️ Cấu hình Kernel — TẮT BTF + DEBUG + CERT
         run: |
           cd kernel
           if [ -f arch/arm64/configs/gki_defconfig ]; then
@@ -129,14 +122,19 @@ jobs:
           CONFIG_KALLSYMS_ALL=y
           CONFIG_IKCONFIG=y
           CONFIG_IKCONFIG_PROC=y
+          # === TẮT DEBUG GÂY LỖI — SỬA pahole ===
           CONFIG_DEBUG_INFO=n
+          CONFIG_DEBUG_INFO_BTF=n
+          CONFIG_DEBUG_INFO_REDUCED=n
+          CONFIG_GDB_SCRIPTS=n
+          CONFIG_FRAME_POINTER=n
           # === TẠO IMAGE ARM64 ===
           CONFIG_BUILD_ARM64=y
           CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y
           CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE_NAME="Image"
           CONFIG_BUILD_ARM64_DT_OVERLAY=y
           CONFIG_KERNEL_GZIP=y
-          # === TẮT HOÀN TOÀN CERT — SỬA HẾT LỖI ===
+          # === TẮT CERT ===
           CONFIG_MODULE_SIG=n
           CONFIG_MODULE_SIG_ALL=n
           CONFIG_MODULE_SIG_FORCE=n
@@ -149,7 +147,7 @@ jobs:
           EOF
           
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
-          echo "✅ Cấu hình hoàn tất — đã TẮT HẾT CERT"
+          echo "✅ Cấu hình hoàn tất — TẮT BTF + DEBUG + CERT"
 
       - name: 🔨 Biên dịch + Tạo Image.gz
         run: |
