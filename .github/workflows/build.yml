@@ -47,9 +47,6 @@ jobs:
             echo "✅ Source Xiaomi uke-v-oss"
           fi
           head -n5 Makefile
-          # Liệt kê các defconfig có sẵn
-          echo "📋 Các defconfig tìm thấy:"
-          find arch/arm64/configs -name "*defconfig" | grep -E "6.1|gki|android14|common" | sort
 
       - name: 🔌 Tích hợp KernelSU Next
         run: |
@@ -65,7 +62,6 @@ jobs:
           fi
           echo "✅ KernelSU Next đã tải"
           
-          # Thêm KSU vào Makefile
           if ! grep -q "KernelSU-Next" Makefile; then
             echo "obj-\$(CONFIG_KSU) += $KSU_DIR/" >> Makefile
           fi
@@ -86,24 +82,18 @@ jobs:
             echo "⚠️ Không tải được SuSFS — tiếp tục build chỉ KSU"
           fi
 
-      - name: ⚙️ Cấu hình Kernel — ĐÃ SỬA LỖI defconfig
+      - name: ⚙️ Cấu hình Kernel
         run: |
           cd kernel
-          
-          # Tìm defconfig phù hợp nhất
           if [ -f arch/arm64/configs/gki_defconfig ]; then
             DEFCONFIG=gki_defconfig
-          elif [ -f arch/arm64/configs/defconfig ]; then
-            DEFCONFIG=defconfig
           else
             DEFCONFIG=defconfig
           fi
-          
           echo "✅ Sử dụng: $DEFCONFIG"
           
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG
           
-          # Bật KSU + SuSFS
           cat >> .config << 'EOF'
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -125,17 +115,45 @@ jobs:
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
           echo "✅ Cấu hình hoàn tất"
 
-      - name: 🔨 Biên dịch
+      - name: 🔨 Biên dịch — Tìm đúng file kernel
         run: |
           cd kernel
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee build.log
-          ls -lh arch/arm64/boot/Image
+          
+          # Tìm file kernel
+          echo "🔍 Tìm file kernel..."
+          if [ -f arch/arm64/boot/Image ]; then
+            echo "✅ Tìm thấy: arch/arm64/boot/Image"
+            ls -lh arch/arm64/boot/Image
+          elif [ -f arch/arm64/boot/Image.gz ]; then
+            echo "✅ Tìm thấy: arch/arm64/boot/Image.gz"
+            ls -lh arch/arm64/boot/Image.gz
+          elif [ -f arch/arm64/boot/Image.lz4 ]; then
+            echo "✅ Tìm thấy: arch/arm64/boot/Image.lz4"
+            ls -lh arch/arm64/boot/Image.lz4
+          else
+            echo "❌ Không tìm thấy Image — liệt kê thư mục boot:"
+            ls -la arch/arm64/boot/ || true
+            find . -name "Image*" -o -name "vmlinux" | head -20
+            exit 1
+          fi
 
       - name: 📦 Đóng gói AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
           cd ak3 && rm -rf .git
-          cp ../kernel/arch/arm64/boot/Image ./Image
+          
+          # Copy đúng file kernel
+          cd ../kernel
+          if [ -f arch/arm64/boot/Image ]; then
+            cp arch/arm64/boot/Image ../ak3/Image
+          elif [ -f arch/arm64/boot/Image.gz ]; then
+            cp arch/arm64/boot/Image.gz ../ak3/Image
+          elif [ -f arch/arm64/boot/Image.lz4 ]; then
+            cp arch/arm64/boot/Image.lz4 ../ak3/Image
+          fi
+          cd ../ak3
+          
           cat >> anykernel.sh << 'EOF'
           do.devicecheck=1
           device.name=uke
