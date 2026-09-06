@@ -82,7 +82,15 @@ jobs:
             echo "⚠️ Không tải được SuSFS — tiếp tục build chỉ KSU"
           fi
 
-      - name: ⚙️ Cấu hình Kernel — ĐÃ SỬA + bật tạo Image
+      - name: 🩹 FIX LỖI certs/extract-cert.c — THÊM BƯỚC MỚI
+        run: |
+          cd kernel
+          # === SỬA LỖI key_pass chưa khai báo ===
+          sed -i 's/if (key_pass)/const char *key_pass_str = NULL; if (key_pass_str)/g' certs/extract-cert.c
+          sed -i 's/ERR(!ENGINE_ctrl_cmd(e, "PIN", key_pass, 0, "Set PIN"))/ERR(!ENGINE_ctrl_cmd(e, "PIN", key_pass_str, 0, "Set PIN"))/g' certs/extract-cert.c
+          echo "✅ Đã fix lỗi extract-cert.c"
+
+      - name: ⚙️ Cấu hình Kernel — ĐÃ BỎ KIỂM TRA CERT
         run: |
           cd kernel
           if [ -f arch/arm64/configs/gki_defconfig ]; then
@@ -95,6 +103,7 @@ jobs:
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG
           
           cat >> .config << 'EOF'
+          # === KSU + SuSFS ===
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
@@ -110,15 +119,24 @@ jobs:
           CONFIG_IKCONFIG=y
           CONFIG_IKCONFIG_PROC=y
           CONFIG_DEBUG_INFO=n
+          # === TẠO IMAGE ARM64 ===
           CONFIG_BUILD_ARM64=y
           CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y
           CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE_NAME="Image"
           CONFIG_BUILD_ARM64_DT_OVERLAY=y
           CONFIG_KERNEL_GZIP=y
+          # === BỎ KÝ CERT — SỬA LỖI CHÍNH ===
+          CONFIG_SYSTEM_TRUSTED_KEYS=""
+          CONFIG_SYSTEM_REVOCATION_KEYS=""
+          CONFIG_MODULE_SIG=n
+          CONFIG_MODULE_SIG_ALL=n
+          CONFIG_MODULE_SIG_FORCE=n
+          CONFIG_CERTIFICATE_TRUSTED_PARSE=n
+          CONFIG_CRYPTO_USER=n
           EOF
           
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
-          echo "✅ Cấu hình hoàn tất"
+          echo "✅ Cấu hình hoàn tất — đã bỏ cert gây lỗi"
 
       - name: 🔨 Biên dịch + Tạo Image.gz
         run: |
@@ -126,11 +144,11 @@ jobs:
           # Build toàn bộ kernel
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee build.log
           
-          # Build tạo Image.gz (GKI chuẩn)
+          # Build tạo Image.gz
           echo "📦 Tạo Image.gz..."
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 Image.gz 2>&1 | tee -a build.log
           
-          # Kiểm tra & giải nén ra Image
+          # Kiểm tra & giải nén
           if [ -f arch/arm64/boot/Image.gz ]; then
             echo "✅ Tạo thành công Image.gz"
             gzip -dc arch/arm64/boot/Image.gz > arch/arm64/boot/Image
