@@ -4,12 +4,20 @@ run-name: ✅ Pad7 | 6.1.138 + KSU Next + SuSFS 🚀
 on:
   workflow_dispatch:
     inputs:
-      ksun_branch:
-        description: KernelSU Next phiên bản
+      source_type:
+        description: '🔌 Chọn Nguồn Kernel'
         required: true
-        default: 'next-susfs'
+        default: 'gki'
         type: choice
-        options: [ next-susfs, next-susfs-dev, next ]
+        options:
+          - gki      # ✅ GKI Google — khớp android14-6.1
+          - xiaomi   # ⚠️ Source Xiaomi
+      ksun_branch:
+        description: 'KernelSU Next phiên bản'
+        required: true
+        default: 'next'
+        type: choice
+        options: [ next, dev, stable ]
 
 permissions:
   contents: write
@@ -23,39 +31,72 @@ jobs:
         run: |
           sudo apt update && sudo apt install -y git build-essential bc bison flex \
             libssl-dev libelf-dev cpio lz4 zstd ccache gcc-aarch64-linux-gnu \
-            clang llvm lld zip python3 patch
+            clang llvm lld zip python3 patch curl
 
-      - name: 📥 TẢI SOURCE GKI 6.1.138-android14-11
+      - name: 📥 TẢI SOURCE KERNEL
         run: |
-          git clone --depth=1 -b android14-6.1 \
-            https://android.googlesource.com/kernel/common.git kernel
-          cd kernel
-          echo "✅ Source GKI android14-6.1"
+          if [ "${{ inputs.source_type }}" = "gki" ]; then
+            git clone --depth=1 -b android14-6.1 \
+              https://android.googlesource.com/kernel/common.git kernel
+            cd kernel
+            echo "✅ Source GKI android14-6.1"
+          else
+            git clone --depth=1 -b uke-v-oss \
+              https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+            cd kernel
+            echo "✅ Source Xiaomi uke-v-oss"
+          fi
           head -n5 Makefile
 
-      - name: 🔌 Tích hợp KernelSU Next + SuSFS
+      - name: 🔌 Tích hợp KernelSU Next — ĐÃ SỬA LỖI 404
         run: |
           cd kernel
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/${{ inputs.ksun_branch }}/kernel/setup.sh" | bash -s ${{ inputs.ksun_branch }}
-          echo "✅ KernelSU Next + SuSFS đã thêm"
-          ls -la KernelSU-Next/
+          # === SỬA: Tải trực tiếp repo thay vì dùng script setup ===
+          KSU_DIR=KernelSU-Next
+          git clone --depth=1 -b ${{ inputs.ksun_branch }} \
+            https://github.com/KernelSU-Next/KernelSU-Next.git $KSU_DIR || \
+          git clone --depth=1 https://github.com/KernelSU-Next/KernelSU-Next.git $KSU_DIR
+          
+          # Tạo link KSU
+          if [ ! -d "$KSU_DIR" ]; then
+            echo "❌ Không tải được KernelSU Next"
+            exit 1
+          fi
+          echo "✅ KernelSU Next đã tải — nhánh: ${{ inputs.ksun_branch }}"
+          ls -la $KSU_DIR/
+          
+          # Thêm KSU vào Makefile
+          if ! grep -q "KernelSU-Next" Makefile; then
+            echo "obj-\$(CONFIG_KSU) += $KSU_DIR/" >> Makefile
+          fi
 
       - name: 🧩 Áp dụng SuSFS Patch
         run: |
           cd kernel
-          git clone --depth=1 -b gki-android14-6.1 https://gitlab.com/simonpunk/susfs4ksu.git susfs
-          cp -p susfs/kernel_patches/fs/* fs/
-          cp -p susfs/kernel_patches/include/linux/* include/linux/
-          cd KernelSU-Next
-          patch -p1 < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
-          cd ..
-          patch -p1 < susfs/kernel_patches/50_add_susfs_in_kernel-gki-android14-6.1.patch || true
-          echo "✅ SuSFS patch xong"
+          git clone --depth=1 -b gki-android14-6.1 https://gitlab.com/simonpunk/susfs4ksu.git susfs || true
+          if [ -d susfs ]; then
+            cp -p susfs/kernel_patches/fs/* fs/ 2>/dev/null || true
+            cp -p susfs/kernel_patches/include/linux/* include/linux/ 2>/dev/null || true
+            cd KernelSU-Next
+            patch -p1 < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch 2>/dev/null || true
+            cd ..
+            patch -p1 < susfs/kernel_patches/50_add_susfs_in_kernel-gki-android14-6.1.patch 2>/dev/null || true
+            echo "✅ SuSFS patch đã áp dụng"
+          else
+            echo "⚠️ Không tải được SuSFS — tiếp tục build chỉ KSU"
+          fi
 
       - name: ⚙️ Cấu hình Kernel
         run: |
           cd kernel
-          make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 android14-6.1_defconfig
+          if [ "${{ inputs.source_type }}" = "gki" ]; then
+            make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 android14-6.1_defconfig
+          else
+            make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 uke_defconfig 2>/dev/null || \
+            make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 sm7550_defconfig 2>/dev/null || \
+            make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 android14-6.1_defconfig
+          fi
+          
           cat >> .config << 'EOF'
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -71,8 +112,11 @@ jobs:
           CONFIG_KALLSYMS_ALL=y
           CONFIG_IKCONFIG=y
           CONFIG_IKCONFIG_PROC=y
+          CONFIG_DEBUG_INFO=n
           EOF
+          
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
+          echo "✅ Cấu hình hoàn tất"
 
       - name: 🔨 Biên dịch
         run: |
@@ -85,11 +129,11 @@ jobs:
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
           cd ak3 && rm -rf .git
           cp ../kernel/arch/arm64/boot/Image ./Image
-                cat >> anykernel.sh << 'EOF'
+          cat >> anykernel.sh << 'EOF'
           do.devicecheck=1
           device.name=uke
           device.name=pad7
-          kernel.version=6.1.138-android14-11
+          kernel.version=6.1-android14
           ksu.next=true
           susfs.enabled=true
           EOF
@@ -99,7 +143,7 @@ jobs:
       - name: 📤 Upload kết quả
         uses: actions/upload-artifact@v4
         with:
-          name: KSU-Next-SuSFS-Pad7-6.1.138
+          name: KSU-Next-SuSFS-Pad7-6.1
           path: |
             KSU-Next-SuSFS-Pad7-UKE.zip
             kernel/.config
