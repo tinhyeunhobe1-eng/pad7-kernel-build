@@ -31,7 +31,7 @@ jobs:
         run: |
           sudo apt update && sudo apt install -y git build-essential bc bison flex \
             libssl-dev libelf-dev cpio lz4 zstd ccache gcc-aarch64-linux-gnu \
-            clang llvm lld zip python3 patch curl
+            clang llvm lld zip python3 patch curl gzip
 
       - name: 📥 TẢI SOURCE KERNEL
         run: |
@@ -82,7 +82,7 @@ jobs:
             echo "⚠️ Không tải được SuSFS — tiếp tục build chỉ KSU"
           fi
 
-      - name: ⚙️ Cấu hình Kernel
+      - name: ⚙️ Cấu hình Kernel — ĐÃ SỬA + bật tạo Image
         run: |
           cd kernel
           if [ -f arch/arm64/configs/gki_defconfig ]; then
@@ -90,7 +90,7 @@ jobs:
           else
             DEFCONFIG=defconfig
           fi
-          echo "✅ Sử dụng: $DEFCONFIG"
+          echo "✅ Sử dụng defconfig: $DEFCONFIG"
           
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG
           
@@ -110,31 +110,34 @@ jobs:
           CONFIG_IKCONFIG=y
           CONFIG_IKCONFIG_PROC=y
           CONFIG_DEBUG_INFO=n
+          CONFIG_BUILD_ARM64=y
+          CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y
+          CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE_NAME="Image"
+          CONFIG_BUILD_ARM64_DT_OVERLAY=y
+          CONFIG_KERNEL_GZIP=y
           EOF
           
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
           echo "✅ Cấu hình hoàn tất"
 
-      - name: 🔨 Biên dịch — Tìm đúng file kernel
+      - name: 🔨 Biên dịch + Tạo Image.gz
         run: |
           cd kernel
+          # Build toàn bộ kernel
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee build.log
           
-          # Tìm file kernel
-          echo "🔍 Tìm file kernel..."
-          if [ -f arch/arm64/boot/Image ]; then
-            echo "✅ Tìm thấy: arch/arm64/boot/Image"
+          # Build tạo Image.gz (GKI chuẩn)
+          echo "📦 Tạo Image.gz..."
+          make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 Image.gz 2>&1 | tee -a build.log
+          
+          # Kiểm tra & giải nén ra Image
+          if [ -f arch/arm64/boot/Image.gz ]; then
+            echo "✅ Tạo thành công Image.gz"
+            gzip -dc arch/arm64/boot/Image.gz > arch/arm64/boot/Image
             ls -lh arch/arm64/boot/Image
-          elif [ -f arch/arm64/boot/Image.gz ]; then
-            echo "✅ Tìm thấy: arch/arm64/boot/Image.gz"
-            ls -lh arch/arm64/boot/Image.gz
-          elif [ -f arch/arm64/boot/Image.lz4 ]; then
-            echo "✅ Tìm thấy: arch/arm64/boot/Image.lz4"
-            ls -lh arch/arm64/boot/Image.lz4
           else
-            echo "❌ Không tìm thấy Image — liệt kê thư mục boot:"
-            ls -la arch/arm64/boot/ || true
-            find . -name "Image*" -o -name "vmlinux" | head -20
+            echo "❌ Không tạo được Image.gz!"
+            ls -la arch/arm64/boot/
             exit 1
           fi
 
@@ -143,16 +146,7 @@ jobs:
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
           cd ak3 && rm -rf .git
           
-          # Copy đúng file kernel
-          cd ../kernel
-          if [ -f arch/arm64/boot/Image ]; then
-            cp arch/arm64/boot/Image ../ak3/Image
-          elif [ -f arch/arm64/boot/Image.gz ]; then
-            cp arch/arm64/boot/Image.gz ../ak3/Image
-          elif [ -f arch/arm64/boot/Image.lz4 ]; then
-            cp arch/arm64/boot/Image.lz4 ../ak3/Image
-          fi
-          cd ../ak3
+          cp ../kernel/arch/arm64/boot/Image ./Image
           
           cat >> anykernel.sh << 'EOF'
           do.devicecheck=1
@@ -164,6 +158,7 @@ jobs:
           EOF
           zip -r9 ../KSU-Next-SuSFS-Pad7-UKE.zip ./*
           cd .. && ls -lh KSU-Next-SuSFS-Pad7-UKE.zip
+          echo "✅ File flash đã sẵn sàng!"
 
       - name: 📤 Upload kết quả
         uses: actions/upload-artifact@v4
