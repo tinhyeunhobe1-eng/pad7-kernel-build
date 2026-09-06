@@ -1,0 +1,107 @@
+name: KSU Next + SuSFS — Pad7 (uke)
+run-name: ✅ Pad7 | 6.1.138 + KSU Next + SuSFS 🚀
+
+on:
+  workflow_dispatch:
+    inputs:
+      ksun_branch:
+        description: KernelSU Next phiên bản
+        required: true
+        default: 'next-susfs'
+        type: choice
+        options: [ next-susfs, next-susfs-dev, next ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 📦 Cài công cụ
+        run: |
+          sudo apt update && sudo apt install -y git build-essential bc bison flex \
+            libssl-dev libelf-dev cpio lz4 zstd ccache gcc-aarch64-linux-gnu \
+            clang llvm lld zip python3 patch
+
+      - name: 📥 TẢI SOURCE GKI 6.1.138-android14-11
+        run: |
+          git clone --depth=1 -b android14-6.1 \
+            https://android.googlesource.com/kernel/common.git kernel
+          cd kernel
+          echo "✅ Source GKI android14-6.1"
+          head -n5 Makefile
+
+      - name: 🔌 Tích hợp KernelSU Next + SuSFS
+        run: |
+          cd kernel
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/${{ inputs.ksun_branch }}/kernel/setup.sh" | bash -s ${{ inputs.ksun_branch }}
+          echo "✅ KernelSU Next + SuSFS đã thêm"
+          ls -la KernelSU-Next/
+
+      - name: 🧩 Áp dụng SuSFS Patch
+        run: |
+          cd kernel
+          git clone --depth=1 -b gki-android14-6.1 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+          cp -p susfs/kernel_patches/fs/* fs/
+          cp -p susfs/kernel_patches/include/linux/* include/linux/
+          cd KernelSU-Next
+          patch -p1 < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
+          cd ..
+          patch -p1 < susfs/kernel_patches/50_add_susfs_in_kernel-gki-android14-6.1.patch || true
+          echo "✅ SuSFS patch xong"
+
+      - name: ⚙️ Cấu hình Kernel
+        run: |
+          cd kernel
+          make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 android14-6.1_defconfig
+          cat >> .config << 'EOF'
+          CONFIG_KSU=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_SU=y
+          CONFIG_KSU_SYSCTL=y
+          CONFIG_KSU_WITH_KPROBES=y
+          CONFIG_MODULES=y
+          CONFIG_MODULE_UNLOAD=y
+          CONFIG_BPF=y
+          CONFIG_BPF_SYSCALL=y
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
+          CONFIG_IKCONFIG=y
+          CONFIG_IKCONFIG_PROC=y
+          EOF
+          make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
+
+      - name: 🔨 Biên dịch
+        run: |
+          cd kernel
+          make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee build.log
+          ls -lh arch/arm64/boot/Image
+
+      - name: 📦 Đóng gói AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
+          cd ak3 && rm -rf .git
+          cp ../kernel/arch/arm64/boot/Image ./Image
+                cat >> anykernel.sh << 'EOF'
+          do.devicecheck=1
+          device.name=uke
+          device.name=pad7
+          kernel.version=6.1.138-android14-11
+          ksu.next=true
+          susfs.enabled=true
+          EOF
+          zip -r9 ../KSU-Next-SuSFS-Pad7-UKE.zip ./*
+          cd .. && ls -lh KSU-Next-SuSFS-Pad7-UKE.zip
+
+      - name: 📤 Upload kết quả
+        uses: actions/upload-artifact@v4
+        with:
+          name: KSU-Next-SuSFS-Pad7-6.1.138
+          path: |
+            KSU-Next-SuSFS-Pad7-UKE.zip
+            kernel/.config
+            kernel/build.log
+          retention-days: 30
