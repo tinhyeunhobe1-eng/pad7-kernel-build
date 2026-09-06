@@ -1,5 +1,5 @@
 name: KSU Next + SuSFS — Pad7 (uke)
-run-name: ✅ Pad7 | 6.1.138 + KSU Next + SuSFS 🚀
+run-name: ✅ Pad7 | KSU Next + SuSFS 🚀
 
 on:
   workflow_dispatch:
@@ -10,8 +10,8 @@ on:
         default: 'gki'
         type: choice
         options:
-          - gki      # ✅ GKI Google — khớp android14-6.1
-          - xiaomi   # ⚠️ Source Xiaomi
+          - gki
+          - xiaomi
       ksun_branch:
         description: 'KernelSU Next phiên bản'
         required: true
@@ -47,23 +47,23 @@ jobs:
             echo "✅ Source Xiaomi uke-v-oss"
           fi
           head -n5 Makefile
+          # Liệt kê các defconfig có sẵn
+          echo "📋 Các defconfig tìm thấy:"
+          find arch/arm64/configs -name "*defconfig" | grep -E "6.1|gki|android14|common" | sort
 
-      - name: 🔌 Tích hợp KernelSU Next — ĐÃ SỬA LỖI 404
+      - name: 🔌 Tích hợp KernelSU Next
         run: |
           cd kernel
-          # === SỬA: Tải trực tiếp repo thay vì dùng script setup ===
           KSU_DIR=KernelSU-Next
           git clone --depth=1 -b ${{ inputs.ksun_branch }} \
             https://github.com/KernelSU-Next/KernelSU-Next.git $KSU_DIR || \
           git clone --depth=1 https://github.com/KernelSU-Next/KernelSU-Next.git $KSU_DIR
           
-          # Tạo link KSU
           if [ ! -d "$KSU_DIR" ]; then
             echo "❌ Không tải được KernelSU Next"
             exit 1
           fi
-          echo "✅ KernelSU Next đã tải — nhánh: ${{ inputs.ksun_branch }}"
-          ls -la $KSU_DIR/
+          echo "✅ KernelSU Next đã tải"
           
           # Thêm KSU vào Makefile
           if ! grep -q "KernelSU-Next" Makefile; then
@@ -86,17 +86,24 @@ jobs:
             echo "⚠️ Không tải được SuSFS — tiếp tục build chỉ KSU"
           fi
 
-      - name: ⚙️ Cấu hình Kernel
+      - name: ⚙️ Cấu hình Kernel — ĐÃ SỬA LỖI defconfig
         run: |
           cd kernel
-          if [ "${{ inputs.source_type }}" = "gki" ]; then
-            make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 android14-6.1_defconfig
+          
+          # Tìm defconfig phù hợp nhất
+          if [ -f arch/arm64/configs/gki_defconfig ]; then
+            DEFCONFIG=gki_defconfig
+          elif [ -f arch/arm64/configs/defconfig ]; then
+            DEFCONFIG=defconfig
           else
-            make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 uke_defconfig 2>/dev/null || \
-            make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 sm7550_defconfig 2>/dev/null || \
-            make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 android14-6.1_defconfig
+            DEFCONFIG=defconfig
           fi
           
+          echo "✅ Sử dụng: $DEFCONFIG"
+          
+          make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG
+          
+          # Bật KSU + SuSFS
           cat >> .config << 'EOF'
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -143,7 +150,7 @@ jobs:
       - name: 📤 Upload kết quả
         uses: actions/upload-artifact@v4
         with:
-          name: KSU-Next-SuSFS-Pad7-6.1
+          name: KSU-Next-SuSFS-Pad7
           path: |
             KSU-Next-SuSFS-Pad7-UKE.zip
             kernel/.config
