@@ -82,18 +82,26 @@ jobs:
             echo "⚠️ Không tải được SuSFS — tiếp tục build chỉ KSU"
           fi
 
-      - name: 🩹 FIX LỖI certs/extract-cert.c — GHI ĐÈ LUÔN ✅
+      - name: 🩹 FIX TOÀN BỘ LỖI CERT — TẠO FILE GIẢ + GHI ĐÈ
         run: |
           cd kernel
-          # === Ghi đè file gây lỗi thành phiên bản đơn giản ===
+          # === 1. Tạo file cert rỗng — qua bước assembly ===
+          touch certs/signing_key.x509
+          touch certs/x509_certificate_list
+          echo "✅ Tạo file cert rỗng"
+          
+          # === 2. Ghi đè extract-cert.c — bỏ lỗi key_pass ===
           cat > certs/extract-cert.c << 'EOF'
-          // Workaround: bỏ qua bước trích xuất cert — không ảnh hưởng kernel
+          // Workaround: bỏ qua bước trích xuất cert
           #include <stdio.h>
           int main(void) { return 0; }
           EOF
-          echo "✅ Đã ghi đè certs/extract-cert.c — bỏ lỗi key_pass"
+          echo "✅ Ghi đè extract-cert.c"
+          
+          # === 3. Kiểm tra file ===
+          ls -lh certs/signing_key.x509 certs/x509_certificate_list certs/extract-cert.c
 
-      - name: ⚙️ Cấu hình Kernel — TẮT CERT
+      - name: ⚙️ Cấu hình Kernel — TẮT HOÀN TOÀN CERT
         run: |
           cd kernel
           if [ -f arch/arm64/configs/gki_defconfig ]; then
@@ -128,16 +136,20 @@ jobs:
           CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE_NAME="Image"
           CONFIG_BUILD_ARM64_DT_OVERLAY=y
           CONFIG_KERNEL_GZIP=y
-          # === TẮT KÝ CERT ===
+          # === TẮT HOÀN TOÀN CERT — SỬA HẾT LỖI ===
           CONFIG_MODULE_SIG=n
           CONFIG_MODULE_SIG_ALL=n
           CONFIG_MODULE_SIG_FORCE=n
           CONFIG_SYSTEM_TRUSTED_KEYS=""
           CONFIG_SYSTEM_REVOCATION_KEYS=""
+          CONFIG_SYSTEM_CERTIFICATE_KEYS=""
+          CONFIG_SYSTEM_EXTRA_CERTIFICATES=""
+          CONFIG_CERTIFICATE_TRUSTED_PARSE=n
+          CONFIG_SYSTEM_CERTIFICATES=n
           EOF
           
           make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
-          echo "✅ Cấu hình hoàn tất"
+          echo "✅ Cấu hình hoàn tất — đã TẮT HẾT CERT"
 
       - name: 🔨 Biên dịch + Tạo Image.gz
         run: |
