@@ -12,7 +12,8 @@ jobs:
         run: |
           git clone --depth=1 --branch shennong-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
           cd kernel
-          ls arch/arm64/configs/
+          echo "=== Danh sách file cấu hình ==="
+          ls arch/arm64/configs/ | grep -E "defconfig"
 
       - name: 🔧 Cài công cụ
         run: |
@@ -24,14 +25,10 @@ jobs:
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
 
-      - name: ⚙️ Tìm & đặt cấu hình
+      - name: ⚙️ Cấu hình với defconfig chung
         run: |
           cd kernel
-          # Tìm file cấu hình phù hợp
-          DEFCFG=$(ls arch/arm64/configs/*shennong* 2>/dev/null || ls arch/arm64/configs/*xiaomi15* 2>/dev/null || ls arch/arm64/configs/*qcom*defconfig 2>/dev/null | head -1)
-          echo "Tìm thấy cấu hình: $DEFCFG"
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- "$(basename $DEFCFG)"
-          # Bật KernelSU
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig
           echo "CONFIG_KSU=y" >> .config
 
       - name: 🔨 Build Kernel
