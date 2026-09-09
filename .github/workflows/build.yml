@@ -12,6 +12,7 @@ jobs:
         run: |
           git clone --depth=1 --branch shennong-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
           cd kernel
+          ls arch/arm64/configs/
 
       - name: 🔧 Cài công cụ
         run: |
@@ -23,19 +24,15 @@ jobs:
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
 
-      - name: 🔒 Thêm SUSFS
+      - name: ⚙️ Tìm & đặt cấu hình
         run: |
           cd kernel
-          git clone https://github.com/SUSFS/susfs.git susfs || true
-
-      - name: ⚙️ Cấu hình
-        run: |
-          cd kernel
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig
+          # Tìm file cấu hình phù hợp
+          DEFCFG=$(ls arch/arm64/configs/*shennong* 2>/dev/null || ls arch/arm64/configs/*xiaomi15* 2>/dev/null || ls arch/arm64/configs/*qcom*defconfig 2>/dev/null | head -1)
+          echo "Tìm thấy cấu hình: $DEFCFG"
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- "$(basename $DEFCFG)"
+          # Bật KernelSU
           echo "CONFIG_KSU=y" >> .config
-          echo "CONFIG_KSU_SUSFS=y" >> .config
-          echo "CONFIG_SUSFS=y" >> .config
-          echo "CONFIG_SUSFS_HIDE_KSU=y" >> .config
 
       - name: 🔨 Build Kernel
         run: |
@@ -45,6 +42,6 @@ jobs:
       - name: 📤 Tải kết quả
         uses: actions/upload-artifact@v4
         with:
-          name: KernelSU-Next-SUSFS
+          name: Kernel-Image
           path: kernel/arch/arm64/boot/Image
           retention-days: 60
