@@ -1,212 +1,50 @@
-name: KSU Next + SuSFS — Pad7 (uke) ✅ ĐÚNG CHUẨN
-run-name: ✅ Pad7 | Image.gz + DTB + KSU Next + SuSFS 🚀
-
+name: KernelSU Next + SUSFS
+run-name: Đang xây dựng... 🚀
 on:
   workflow_dispatch:
-    inputs:
-      source_type:
-        description: '🔌 Chọn Nguồn Kernel'
-        required: true
-        default: 'gki'
-        type: choice
-        options:
-          - gki
-          - xiaomi
-      ksun_branch:
-        description: 'KernelSU Next phiên bản'
-        required: true
-        default: 'next'
-        type: choice
-        options: [ next, dev, stable ]
-
-permissions:
-  contents: write
 
 jobs:
   build:
-    name: Build Kernel — ĐÚNG CHUẨN GKI
-    runs-on: ubuntu-22.04
+    name: Build
+    runs-on: ubuntu-latest
     steps:
-      - name: 📦 Cài công cụ
+      - name: 📥 Tải nguồn Kernel
         run: |
-          sudo apt update && sudo apt install -y git build-essential bc bison flex \
-            libssl-dev libelf-dev cpio lz4 zstd ccache gcc-aarch64-linux-gnu \
-            clang llvm lld zip python3 patch curl gzip dwarves pahole
+          git clone --depth=1 --branch shennong-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+          cd kernel
 
-      - name: 📥 TẢI SOURCE KERNEL
+      - name: 🔧 Cài công cụ
         run: |
-          if [ "${{ inputs.source_type }}" = "gki" ]; then
-            git clone --depth=1 -b android14-6.1 \
-              https://android.googlesource.com/kernel/common.git kernel
-            cd kernel
-            echo "✅ Source GKI android14-6.1"
-          else
-            git clone --depth=1 -b uke-v-oss \
-              https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
-            cd kernel
-            echo "✅ Source Xiaomi uke-v-oss"
-          fi
-          head -n5 Makefile
+          sudo apt-get update -y
+          sudo apt-get install -y git bc bison build-essential gcc-aarch64-linux-gnu libelf-dev zip
 
-      - name: 🔌 Tích hợp KernelSU Next
+      - name: 🧠 Thêm KernelSU Next
         run: |
           cd kernel
-          KSU_DIR=KernelSU-Next
-          git clone --depth=1 -b ${{ inputs.ksun_branch }} \
-            https://github.com/KernelSU-Next/KernelSU-Next.git $KSU_DIR || \
-          git clone --depth=1 https://github.com/KernelSU-Next/KernelSU-Next.git $KSU_DIR
-          
-          if [ ! -d "$KSU_DIR" ]; then
-            echo "❌ Không tải được KernelSU Next"
-            exit 1
-          fi
-          echo "✅ KernelSU Next đã tải"
-          
-          if ! grep -q "KernelSU-Next" Makefile; then
-            echo "obj-\$(CONFIG_KSU) += $KSU_DIR/" >> Makefile
-          fi
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
 
-      - name: 🧩 Áp dụng SuSFS Patch
+      - name: 🔒 Thêm SUSFS
         run: |
           cd kernel
-          git clone --depth=1 -b gki-android14-6.1 https://gitlab.com/simonpunk/susfs4ksu.git susfs || true
-          if [ -d susfs ]; then
-            cp -p susfs/kernel_patches/fs/* fs/ 2>/dev/null || true
-            cp -p susfs/kernel_patches/include/linux/* include/linux/ 2>/dev/null || true
-            cd KernelSU-Next
-            patch -p1 < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch 2>/dev/null || true
-            cd ..
-            patch -p1 < susfs/kernel_patches/50_add_susfs_in_kernel-gki-android14-6.1.patch 2>/dev/null || true
-            echo "✅ SuSFS patch đã áp dụng"
-          else
-            echo "⚠️ Không tải được SuSFS — tiếp tục build chỉ KSU"
-          fi
+          git clone https://github.com/SUSFS/susfs.git susfs || true
 
-      - name: 🩹 FIX CERT — TẠO FILE RỖNG
+      - name: ⚙️ Cấu hình
         run: |
           cd kernel
-          touch certs/signing_key.x509
-          touch certs/x509_certificate_list
-          cat > certs/extract-cert.c << 'EOF'
-          #include <stdio.h>
-          int main(void) { return 0; }
-          EOF
-          echo "✅ Fix cert hoàn tất"
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig
+          echo "CONFIG_KSU=y" >> .config
+          echo "CONFIG_KSU_SUSFS=y" >> .config
+          echo "CONFIG_SUSFS=y" >> .config
+          echo "CONFIG_SUSFS_HIDE_KSU=y" >> .config
 
-      - name: ⚙️ Cấu hình Kernel — ĐÚNG GKI + DTB
+      - name: 🔨 Build Kernel
         run: |
           cd kernel
-          DEFCONFIG=gki_defconfig
-          [ ! -f arch/arm64/configs/gki_defconfig ] && DEFCONFIG=defconfig
-          echo "✅ Sử dụng: $DEFCONFIG"
-          
-          make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG
-          
-          cat >> .config << 'EOF'
-          # === KSU + SuSFS ===
-          CONFIG_KSU=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_SU=y
-          CONFIG_KSU_SYSCTL=y
-          CONFIG_KSU_WITH_KPROBES=y
-          CONFIG_MODULES=y
-          CONFIG_MODULE_UNLOAD=y
-          CONFIG_BPF=y
-          CONFIG_BPF_SYSCALL=y
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-          CONFIG_IKCONFIG=y
-          CONFIG_IKCONFIG_PROC=y
-          # === TẮT DEBUG GÂY LỖI ===
-          CONFIG_DEBUG_INFO=n
-          CONFIG_DEBUG_INFO_BTF=n
-          # === TẠO IMAGE CÓ DTB — QUAN TRỌNG NHẤT ===
-          CONFIG_BUILD_ARM64=y
-          CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y
-          CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE_NAME="Image.gz"
-          CONFIG_BUILD_ARM64_DT_OVERLAY=y
-          CONFIG_KERNEL_GZIP=y
-          # === TẮT CERT ===
-          CONFIG_MODULE_SIG=n
-          CONFIG_MODULE_SIG_ALL=n
-          CONFIG_MODULE_SIG_FORCE=n
-          CONFIG_SYSTEM_TRUSTED_KEYS=""
-          CONFIG_SYSTEM_REVOCATION_KEYS=""
-          CONFIG_SYSTEM_CERTIFICATES=n
-          EOF
-          
-          make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
-          echo "✅ Cấu hình hoàn tất — Image.gz có DTB"
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 
-      - name: 🔨 Biên dịch — TẠO IMAGE.GZ CÓ DTB ✅
-        run: |
-          cd kernel
-          make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee build.log
-          
-          echo "📦 Tạo Image.gz (đã nhúng DTB theo GKI)..."
-          make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 Image.gz 2>&1 | tee -a build.log
-          
-          if [ -f arch/arm64/boot/Image.gz ]; then
-            echo "✅ THÀNH CÔNG: Image.gz (đã bao gồm DTB) — $(du -h arch/arm64/boot/Image.gz)"
-            cp arch/arm64/boot/Image.gz ./Image.gz
-          else
-            echo "❌ Lỗi — không tạo được Image.gz"
-            ls -la arch/arm64/boot/
-            exit 1
-          fi
-
-      - name: 📦 Đóng gói AnyKernel3 — SỬA BUSYBOX + DTB ✅
-        run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
-          cd ak3 && rm -rf .git
-          
-          # === DÙNG Image.gz — ĐÃ CÓ DTB ===
-          cp ../kernel/Image.gz ./Image.gz
-          
-          # === SCRIPT ĐÃ SỬA LỖI BUSYBOX ===
-          cat > anykernel.sh << 'EOF'
-          #!/sbin/sh
-          ### AnyKernel3 Flash Script — Pad7 uke ###
-          do.devicecheck=1
-          device.name=uke
-          device.name=pad7
-          kernel.version=6.1-android14
-          ksu.next=1
-          susfs.enabled=1
-          
-          # === Bỏ qua busybox check ===
-          setup_busybox() { return 0; }
-          
-          # === Flash Image.gz có DTB ===
-          flash_image() {
-            local PARTITION="$1"
-            local IMAGE_FILE="$2"
-            local DEV="/dev/block/by-name/$PARTITION"
-            if [ -b "$DEV" ]; then
-              dd if="$IMAGE_FILE" of="$DEV" bs=4M conv=fsync
-              return $?
-            fi
-            return 1
-          }
-          
-          setup_busybox
-          echo "- Flash kernel Image.gz (có DTB)..."
-          flash_image boot Image.gz && echo "- ✅ Flash thành công!"
-          exit 0
-          EOF
-          
-          chmod 0755 anykernel.sh
-          zip -r9 ../KSU-Next-SuSFS-Pad7-UKE.zip ./*
-          cd .. && ls -lh KSU-Next-SuSFS-Pad7-UKE.zip
-          echo "✅ File zip đã sẵn sàng — Image.gz + DTB + Sửa busybox!"
-
-      - name: 📤 Upload kết quả
+      - name: 📤 Tải kết quả
         uses: actions/upload-artifact@v4
         with:
-          name: KSU-Next-SuSFS-Pad7 — ĐÚNG CHUẨN
-          path: |
-            KSU-Next-SuSFS-Pad7-UKE.zip
-            kernel/Image.gz
-            kernel/build.log
-          retention-days: 30
+          name: KernelSU-Next-SUSFS
+          path: kernel/arch/arm64/boot/Image
+          retention-days: 60
