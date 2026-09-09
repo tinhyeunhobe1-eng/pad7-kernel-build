@@ -1,44 +1,8 @@
-name: KernelSU Next + SUSFS
-run-name: Đang xây dựng... 🚀
-on:
-  workflow_dispatch:
-
-jobs:
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: 📥 Tải nguồn Kernel
-        run: |
-          git clone --depth=1 --branch shennong-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
-          cd kernel
-          echo "=== Danh sách file cấu hình ==="
-          ls arch/arm64/configs/ | grep -E "defconfig"
-
-      - name: 🔧 Cài công cụ
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y git bc bison build-essential gcc-aarch64-linux-gnu libelf-dev zip
-
-      - name: 🧠 Thêm KernelSU Next
-        run: |
-          cd kernel
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
-
-      - name: ⚙️ Cấu hình với defconfig chung
-        run: |
-          cd kernel
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig
-          echo "CONFIG_KSU=y" >> .config
-
-      - name: 🔨 Build Kernel
-        run: |
-          cd kernel
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
-
-      - name: 📤 Tải kết quả
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel-Image
-          path: kernel/arch/arm64/boot/Image
-          retention-days: 60
+KERNEL_SOURCE=https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git
+KERNEL_SOURCE_BRANCH=shennong-u-oss
+KERNEL_CONFIG=vendor/shennong-qcom-perf_defconfig
+KERNEL_IMAGE_NAME=Image.gz-dtb
+ENABLE_KERNELSU=true
+KERNELSU_TAG=v1.0.0
+ENABLE_SUSFS=true
+COMPILER=clang
